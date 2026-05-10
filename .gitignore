@@ -1,0 +1,26 @@
+# envs / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# node
+node_modules/
+dist/
+.next/
+.turbo/
+
+# editor / OS
+.DS_Store
+.vscode/
+.idea/
+*.swp

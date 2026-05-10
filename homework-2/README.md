@@ -1,178 +1,177 @@
-# Homework 2 — Build the Multi-DB Agent
+# Homework 2: Build the Multi-DB Agent
 
-**Due: Friday, 15 May 2026 — EOD, your local time.**
+**Due: Friday, 15 May 2026, 11:59 PM your local time.**
 
----
+## What this homework is about
 
-## Context
+In class, we built the **SkyNova Airlines** customer-service agent end to end. A single ReAct loop that can pull from a **SQL** database (passengers, flights, bookings), a **NoSQL** database (support tickets, reviews, activity logs), and a **vector handbook** (RAG over policy documents). One question in, one grounded answer out, with the receipts.
 
-In class, we built a **SkyNova Airlines** customer-service agent end-to-end: a single ReAct loop that can pull from a **SQL** database (passengers, flights, bookings), a **NoSQL** database (support tickets, reviews, activity logs), and a **vector handbook** (RAG over policy docs). One question in, one grounded answer out, with the receipts.
+Your homework is to **build the same project yourself, from scratch**. Run it against real databases, write tests for it, and demo it.
 
-Your homework is to **build the same project yourself, from scratch**, run it against real databases, test it, and demo it.
+This is the homework where the cohort splits into two groups: people who can ship an agent, and people who can talk about agents. Pick which group you want to be in.
 
-This is *the* homework where the cohort separates into people who can ship an agent and people who can talk about agents. Pick which one you want to be.
+## What you are building
 
----
+A small full-stack app with three parts.
 
-## What you're building
+### 1. Backend
 
-A small full-stack app with:
+- **FastAPI** server with a single `POST /chat` endpoint.
+- **LangChain v1** ReAct agent (`create_agent`), using **OpenAI `gpt-4o-mini`** by default. You may swap models, but document the swap.
+- **Three tools**, each with Pydantic-typed arguments:
+  1. `sql_query`: read-only SELECT against **Supabase Postgres** (or any Postgres). Must reject writes, multi-statements, and dangerous keywords. Auto-injects a `LIMIT` if missing. Has a statement timeout.
+  2. `mongo_query`: typed args against **MongoDB Atlas** (or local Mongo). Has a collection whitelist. Caps the result count. If aggregation is allowed, restrict it to safe stages (`$match`, `$group`, `$sort`, `$limit`, `$project`). No server-side JS.
+  3. `handbook_search`: vector RAG over **pgvector** using `text-embedding-3-small`. Returns top-k chunks with their section labels.
+- The endpoint returns `{answer, tool_calls, warnings, elapsed_ms}`. Yes, you must include `tool_calls` in the response so the frontend can show what the agent actually did.
 
-### Backend
-- **FastAPI** server with a single `POST /chat` endpoint
-- **LangChain v1** ReAct agent (`create_agent`) using **OpenAI `gpt-4o-mini`** (or any model you prefer — document the swap)
-- **Three tools**, each typed with Pydantic args:
-  1. `sql_query` — read-only SELECT against **Supabase Postgres** (or any Postgres). Must reject writes, multi-statements, and dangerous keywords. Auto-injects a `LIMIT`. Statement timeout.
-  2. `mongo_query` — typed args against **MongoDB Atlas** (or local Mongo). Collection whitelist. Hard limit cap. Aggregation pipelines must be restricted to safe stages — no server-side JS.
-  3. `handbook_search` — vector RAG over **pgvector** using `text-embedding-3-small`. Returns top-k chunks with their section labels.
-- Returns `{answer, tool_calls, warnings, elapsed_ms}` — yes, include `tool_calls` so the UI can show what the agent actually did.
+### 2. Frontend
 
-### Frontend
-- **Vite + React + TypeScript** chat UI (Tailwind optional but recommended)
-- Shows the user's question, the agent's answer, and the **tool call trace** (which tool, what args, what came back)
-- Doesn't need auth, doesn't need streaming, doesn't need multi-turn memory. Single-turn is fine.
+- **Vite + React + TypeScript** chat UI. Tailwind is optional but recommended.
+- The UI must show three things: the user's question, the agent's final answer, and the **tool call trace** (which tool was called, with what arguments, and what came back).
+- No auth required. No streaming required. No multi-turn memory required. Single turn is fine.
 
-### Data
-- Seed data for all three stores. You can use your own domain (don't have to be airlines) — but pick one with enough variety that all three tools get exercised.
-- A handful of handbook documents to chunk + embed.
+### 3. Data
 
-### Tests
-- **pytest** with a unit / integration / e2e split
-- Mock the LLM at the unit level (LangChain's `GenericFakeChatModel` works well)
-- At least one e2e test that runs a real question through the full agent loop
+- Seed data for all three stores. You can pick your own domain (does not have to be airlines), but pick a domain with enough variety that all three tools get exercised.
+- A handful of handbook documents to chunk and embed.
 
----
+### 4. Tests
+
+- **pytest**, organized into `unit/`, `integration/`, and `e2e/` folders.
+- Mock the LLM at the unit level. LangChain's `GenericFakeChatModel` works well for this.
+- At least one e2e test that runs a real question through the full agent loop.
 
 ## Reference architecture (what we built in class)
 
 ```
-Browser ─→ React UI ─→ FastAPI ─→ LangChain v1 ReAct agent ─→ [sql_query | mongo_query | handbook_search] ─→ live store
+Browser -> React UI -> FastAPI -> LangChain v1 ReAct agent -> [sql_query | mongo_query | handbook_search] -> live store
 ```
 
-The agent **never** connects to the data stores directly. Every read goes through one of the three typed tools. This is the part most students get wrong on the first try — if your agent has a `psycopg` connection in its hand, you've broken the pattern.
-
----
+The agent **never** connects to the data stores directly. Every read goes through one of the three typed tools. This is the part most students get wrong on the first attempt. If your agent has a `psycopg` connection in its hand, you have broken the pattern.
 
 ## What to do
 
-### Step 1 — Spec before code (30 min, mandatory)
+### Step 1. Spec before code (30 minutes, mandatory)
 
-Before you `uv init`, write a short `SPEC.md` in your repo with:
+Before you run `uv init`, write a `SPEC.md` in your repo. It should contain:
 
-- **What problem are you solving?** Who's the user, what do they ask the agent?
-- **What are the 3 tools, and what's the contract for each?** (input args, return shape, error cases)
-- **What's the system prompt going to tell the agent about when to use which tool?**
-- **What does "done" look like?** Five sample questions you'll test against, with expected answer shapes.
+1. **Problem statement.** Who is the user, and what kinds of questions do they ask the agent?
+2. **The 3 tools and their contracts.** For each tool: input arguments (with types), return shape, and how errors are surfaced.
+3. **Routing rules.** What does the system prompt tell the agent about when to call which tool?
+4. **Definition of done.** Five sample questions you will test against, with the expected answer shape (which tool gets called, what fields appear in the answer).
 
-This file gets committed to your repo. Reviewers will read it first. If your spec is "build an agent like in class," you've already lost the homework.
+This file gets committed to your repo. Reviewers will read it first. If your spec is "build an agent like in class", you have already lost the homework.
 
-### Step 2 — Build it
+### Step 2. Build it incrementally
 
-Stand it up incrementally — don't try to wire everything at once:
+Do not try to wire everything at once. Stand it up in this order:
 
-1. FastAPI hello world → `POST /chat` returning a stub
-2. One tool working in isolation (start with `sql_query` — it's the simplest)
-3. Wire LangChain ReAct agent with that one tool, get a real question answered
-4. Add the second tool, then the third
-5. Frontend last (it's the easy part once the backend works)
+1. FastAPI hello world. `POST /chat` returning a stub response.
+2. One tool working in isolation. Start with `sql_query` because it is the simplest.
+3. Wire a LangChain ReAct agent that uses just that one tool. Get a real question answered end to end.
+4. Add the second tool, then the third.
+5. Frontend last. It is the easy part once the backend works.
 
-Commit after each step. We will look at your `git log`.
+Commit after each step. Reviewers will read your `git log`.
 
-### Step 3 — Test it
+### Step 3. Test it
 
-- Unit tests for each tool (good inputs, malformed inputs, dangerous inputs)
-- Integration tests that hit a real (test) database
-- An e2e test that runs your five sample questions from `SPEC.md` end-to-end
+Minimum bar:
 
-If you can't be bothered to write tests, write **one** integration test per tool and one e2e test. The bar is "you actually verified it works," not "you have 90% coverage."
+- One unit test per tool. Cover good inputs, malformed inputs, and dangerous inputs.
+- One integration test per tool that hits a real test database.
+- One e2e test that runs your five sample questions from `SPEC.md` end to end.
 
-### Step 4 — Demo
+If you can write more, great. The goal is "I actually verified this works", not "I have 90% coverage".
 
-Record a **short screen capture** (2–4 minutes is plenty) showing:
+### Step 4. Demo it
 
-- The UI loading
-- You asking a question that hits the **SQL** tool — show the tool trace
-- You asking one that hits the **NoSQL** tool — show the trace
-- You asking one that hits the **RAG** tool — show the trace
-- One question that the agent gets *wrong* or *partially wrong*, and your reaction to it
+Record a short screen capture (2 to 4 minutes is plenty) showing:
 
-That last one is the most important. Anyone can demo a happy path. Show us you've actually used the thing.
+1. The UI loading.
+2. A question that hits the **SQL** tool. Show the tool trace.
+3. A question that hits the **NoSQL** tool. Show the tool trace.
+4. A question that hits the **RAG** tool. Show the tool trace.
+5. One question that the agent gets **wrong** or partially wrong, and your reaction to it.
 
-If you can't record video, post 4–5 screenshots covering the same flows.
+That last one is the most important. Anyone can demo a happy path. Show us you have actually used the thing.
 
-### Step 5 — Write up your findings
+If you genuinely cannot record video, post 4 to 5 screenshots that cover the same five flows. Video is strongly preferred.
 
-In your repo's `README.md`, include sections for:
+### Step 5. Write up your findings
 
-- **Architecture** — your version of the diagram above (a sketch is fine)
-- **Why I chose X** — your model, your DBs, your domain
-- **What broke and how I fixed it** — the three best war stories from the build
-- **What I'd change if I had another week** — be specific
+In your repo's main `README.md`, include sections for:
 
-### Step 6 — Share on Skool
+1. **Architecture.** Your version of the diagram above. A hand-drawn sketch is fine.
+2. **Why I chose X.** Your model, your databases, your domain.
+3. **What broke and how I fixed it.** The three best war stories from the build.
+4. **What I would change if I had another week.** Be specific. "Add caching" is not specific. "Cache the embedding for repeat questions, since I noticed I re-embed the same query twice per session" is specific.
 
-- Repo link
-- Demo video (or screenshots) embedded in the post
-- Two or three sentences on the most surprising thing you learned
+### Step 6. Submit
 
----
+In this order:
+
+1. Push everything to your public GitHub repo. Confirm the README, `SPEC.md`, code, tests, and demo links are all present.
+2. Create a post in the Skool community in the **Homework** category. Title format: `HW2 Submission - YourName`. The post must include:
+   - One-line summary of what you built
+   - Link to your public repo
+   - The demo video, embedded or linked (Loom, YouTube unlisted, Google Drive, your call)
+   - 2 to 3 sentences on what was the hardest part of the build
+3. Drop the link to your Skool post as a comment under the **HW2 Assignment Thread** in Skool.
+
+If any of these three steps is missing, the submission is incomplete.
 
 ## Deliverables checklist
 
-- [ ] Public GitHub repo (your own — not a fork of the class repo)
-- [ ] `SPEC.md` — written **before** you started coding
+Before you hit submit, confirm all of the following:
+
+- [ ] Public GitHub repo (your own; not a fork of the class repo)
+- [ ] `SPEC.md` written **before** any code, committed near the start of your `git log`
 - [ ] Working backend (FastAPI + LangChain v1 + 3 tools)
-- [ ] Working frontend (chat UI + tool-call trace)
-- [ ] Seed data for all three stores + load scripts
-- [ ] At least one test per tool + one e2e test
-- [ ] `.env.example` with required keys (no real secrets in git)
+- [ ] Working frontend (chat UI showing the tool-call trace)
+- [ ] Seed data and load scripts for all three stores
+- [ ] At least one unit test per tool, plus one e2e test
+- [ ] `.env.example` listing required keys (no real secrets in git)
 - [ ] `README.md` covering setup, architecture, decisions, and findings
-- [ ] Demo video or screenshots showing all three tools in action *and* one failure case
-- [ ] Skool post with everything above
+- [ ] Demo video or screenshots showing all three tools in action **and** one failure case
+- [ ] Skool post in the Homework category with everything above
+- [ ] Skool post link added as a comment on the HW2 Assignment Thread
 
----
+## How this gets reviewed
 
-## Rubric
-
-| Area | Weight | What we're checking |
+| Area | Weight | What we check |
 |---|---|---|
-| **Spec quality** | 20% | `SPEC.md` shows real thinking before coding. Tool contracts are concrete. Sample questions are realistic. |
-| **It runs** | 25% | Fresh clone → follow your README → working agent. Reviewers will actually do this. |
-| **Tool design** | 20% | Read-only enforced. Inputs validated. Errors don't crash the agent loop. The agent never bypasses a tool. |
-| **Tests** | 10% | At least the minimum bar (one per tool + one e2e). They actually pass. |
-| **Demo + write-up** | 15% | Demo covers all three tools and one failure. Findings are specific to your build. |
-| **Hygiene** | 10% | No secrets. Clean `git log` showing iterative work. README is the friend of a stranger trying to run it. |
+| Spec quality | 20% | `SPEC.md` shows real thinking before coding. Tool contracts are concrete. Sample questions are realistic. |
+| It runs | 25% | Fresh clone, follow your README, working agent. Reviewers will actually do this. |
+| Tool design | 20% | Read-only is enforced. Inputs are validated. Errors do not crash the agent loop. The agent never bypasses a tool. |
+| Tests | 10% | At least the minimum bar (one per tool plus one e2e). They actually pass. |
+| Demo + write-up | 15% | Demo covers all three tools and one failure case. Findings are specific to your build. |
+| Hygiene | 10% | No secrets in git. Clean `git log` showing iterative work. README is friendly to a stranger trying to run it. |
 
----
+## Common mistakes to avoid
 
-## Don't do this
-
-- ❌ Skip `SPEC.md` and dive into code. We'll see the empty file in your repo and dock 20% off the top.
-- ❌ Let the agent run raw SQL the LLM wrote without validation. One `DROP TABLE` and we're done.
-- ❌ Hardcode your `.env` values in `settings.py` to "make it easier for the grader."
-- ❌ Submit a single `feat: initial commit` with 4,000 lines. We want to see your build, not the final state.
-- ❌ Have Claude/Cursor/Codex generate the whole thing in one shot and submit without reading it. We'll ask you to walk through the code and you won't be able to.
-- ❌ Skip the demo because "it works locally." If we can't see it work, it doesn't.
-
----
+1. Skipping `SPEC.md` and diving into code. The empty file in your repo will cost you 20% off the top.
+2. Letting the agent run raw SQL the LLM wrote, with no validation. One `DROP TABLE` and your demo is over.
+3. Hardcoding `.env` values in `settings.py` to "make it easier for the grader". This will cost you points.
+4. Submitting a single `feat: initial commit` with thousands of lines. We want to see the build, not the final state.
+5. Having Claude, Cursor, or Codex generate the whole project in one shot and submitting without reading it. We may ask you to walk through any file in your demo, and you will need to be able to.
+6. Skipping the demo because "it works locally". If we cannot see it work, it does not.
 
 ## Stretch goals (optional, for the showcase round)
 
-If you finish early and want to push:
+If you finish early and want to push further:
 
-- **Streaming responses** so the UI shows the agent's reasoning as it goes
-- **Multi-turn memory** with proper conversation summarization
-- **Auth** — even fake JWT auth, just to see the pattern
-- **A fourth tool** — file search, web search, your call
-- **Eval harness** — run your five sample questions on every commit and track pass/fail over time
+1. **Streaming responses** so the UI shows the agent's reasoning as it goes.
+2. **Multi-turn memory** with proper conversation summarization.
+3. **Auth.** Even a minimal JWT flow, just to see the pattern.
+4. **A fourth tool.** File search, web search, or anything that makes sense for your domain.
+5. **Eval harness.** Run your five sample questions on every commit and track pass/fail over time.
 
-These are not required. Get the base build solid first.
-
----
+These are not required. Get the base build solid first, then attempt these only if you have time.
 
 ## If you get stuck
 
-- Re-watch the class recording. Most "I don't understand X" is answered there.
-- The class reference repo (will be linked in Skool, not here — we want you to try first) is your last-resort lookup, not your starting point.
-- `#help` channel: what you tried, what you saw, what you expected. We won't debug "it doesn't work" with no context.
-- If you're stuck for more than 90 minutes on the same thing, that *is* the moment to ask. Don't grind alone for a day — that's not the lesson.
+1. Re-watch the class recording first. Most "I do not understand X" questions are answered there.
+2. The class reference repo is your last-resort lookup, not your starting point. The link will be posted in Skool, not here. We want you to attempt the build before peeking.
+3. Post in `#help` on Skool with: what you tried, what you saw, what you expected. Drive-by "it does not work" pings will be redirected to add those three points.
+4. If you have been stuck on the same thing for more than 90 minutes, that is the moment to ask. Do not grind alone for a day. That is not the lesson we want you to take from this homework.
